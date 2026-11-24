@@ -1,20 +1,20 @@
-﻿"use client";
+﻿
+"use client";
 
 import { useEffect, useState, useMemo, Suspense } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
-  Search,
   Sparkles,
   ChevronRight,
   ChevronDown,
-  Filter,
   X,
-  Star,
-  RotateCcw,
   SlidersHorizontal,
 } from "lucide-react";
 import ProductCard from "@/components/product-card/ProductCard";
+
+const API_BASE =
+  process.env.NEXT_PUBLIC_API_URL || "http://localhost:5000/api";
 
 const PRICE_RANGES = [
   { id: "under-499", label: "Under ₹499", min: 0, max: 499 },
@@ -35,6 +35,39 @@ const RATING_RANGES = [
   { id: "3", label: "3.5★ & above", min: 3.5 },
 ];
 
+function normalize(value) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function getCategoryValue(product) {
+  const category = product?.category;
+
+  if (typeof category === "string") return category;
+
+  if (category && typeof category === "object") {
+    return category.name || category.title || category.label || "";
+  }
+
+  return product?.categoryName || "";
+}
+
+function getSubCategoryValue(product) {
+  const subCategory = product?.subCategory;
+
+  if (typeof subCategory === "string") return subCategory;
+
+  if (subCategory && typeof subCategory === "object") {
+    return (
+      subCategory.name ||
+      subCategory.title ||
+      subCategory.label ||
+      ""
+    );
+  }
+
+  return "";
+}
+
 function CategoryStorefrontContent({
   categoryName = "Fashion",
   title = "Fashion Collection",
@@ -42,21 +75,23 @@ function CategoryStorefrontContent({
   subCategories = [],
 }) {
   const searchParams = useSearchParams();
+
   const urlSub = searchParams.get("sub");
   const urlSearch = searchParams.get("search");
 
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  // Shopsy / Meesho Filter States
-  const [selectedSubs, setSelectedSubs] = useState(urlSub ? [urlSub] : []);
+  const [selectedSubs, setSelectedSubs] = useState(
+    urlSub ? [urlSub] : []
+  );
   const [selectedPrices, setSelectedPrices] = useState([]);
   const [selectedDiscounts, setSelectedDiscounts] = useState([]);
   const [selectedRatings, setSelectedRatings] = useState([]);
   const [search, setSearch] = useState(urlSearch || "");
-  const [sortBy, setSortBy] = useState("popularity"); // Shopsy default
+  const [sortBy, setSortBy] = useState("popularity");
 
-  // Collapsible Accordions
   const [openSections, setOpenSections] = useState({
     categories: true,
     price: true,
@@ -64,74 +99,119 @@ function CategoryStorefrontContent({
     rating: true,
   });
 
-  const toggleSection = (sec) => {
-    setOpenSections((prev) => ({ ...prev, [sec]: !prev[sec] }));
-  };
-
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false);
 
   useEffect(() => {
-    if (urlSub) {
-      setSelectedSubs([urlSub]);
-    }
+    setSelectedSubs(urlSub ? [urlSub] : []);
   }, [urlSub]);
 
   useEffect(() => {
-    if (urlSearch !== null && urlSearch !== undefined) {
-      setSearch(urlSearch);
-    }
+    setSearch(urlSearch || "");
   }, [urlSearch]);
 
+  // Fetch products from configured backend API
   useEffect(() => {
+    let isMounted = true;
+
     async function fetchProducts() {
       setLoading(true);
+      setError("");
+
       try {
-        const res = await fetch("http://localhost:5000/api/products", {
+        const response = await fetch(`${API_BASE}/products`, {
           cache: "no-store",
         });
-        const data = await res.json();
-        if (Array.isArray(data)) {
-          const catItems =
-            !categoryName || categoryName.toLowerCase() === "all"
-              ? data
-              : data.filter(
-                  (p) => p.category?.toLowerCase() === categoryName.toLowerCase()
-                );
-          setProducts(catItems);
+
+        if (!response.ok) {
+          throw new Error(`Products API failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+
+        const productList = Array.isArray(data)
+          ? data
+          : Array.isArray(data.products)
+            ? data.products
+            : Array.isArray(data.data)
+              ? data.data
+              : [];
+
+        const normalizedCategory = normalize(categoryName);
+
+        const categoryProducts =
+          !normalizedCategory || normalizedCategory === "all"
+            ? productList
+            : productList.filter(
+                (product) =>
+                  normalize(getCategoryValue(product)) ===
+                  normalizedCategory
+              );
+
+        if (isMounted) {
+          setProducts(categoryProducts);
         }
       } catch (err) {
-        console.error(`Failed to load ${categoryName} products:`, err);
+        console.error(
+          `Failed to load ${categoryName} products:`,
+          err
+        );
+
+        if (isMounted) {
+          setProducts([]);
+          setError(
+            "Products load nahi ho paaye. Please refresh and try again."
+          );
+        }
       } finally {
-        setLoading(false);
+        if (isMounted) {
+          setLoading(false);
+        }
       }
     }
 
-    if (categoryName) {
-      fetchProducts();
-    }
+    fetchProducts();
+
+    return () => {
+      isMounted = false;
+    };
   }, [categoryName]);
 
+  const toggleSection = (section) => {
+    setOpenSections((previous) => ({
+      ...previous,
+      [section]: !previous[section],
+    }));
+  };
+
   const toggleSub = (sub) => {
-    setSelectedSubs((prev) =>
-      prev.includes(sub) ? prev.filter((s) => s !== sub) : [...prev, sub]
+    setSelectedSubs((previous) =>
+      previous.includes(sub)
+        ? previous.filter((item) => item !== sub)
+        : [...previous, sub]
     );
   };
 
   const togglePrice = (id) => {
-    setSelectedPrices((prev) =>
-      prev.includes(id) ? prev.filter((p) => p !== id) : [...prev, id]
+    setSelectedPrices((previous) =>
+      previous.includes(id)
+        ? previous.filter((item) => item !== id)
+        : [...previous, id]
     );
   };
 
   const toggleDiscount = (id) => {
-    setSelectedDiscounts((prev) =>
-      prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id]
+    setSelectedDiscounts((previous) =>
+      previous.includes(id)
+        ? previous.filter((item) => item !== id)
+        : [...previous, id]
     );
   };
 
   const toggleRating = (id) => {
-    setSelectedRatings((prev) =>
-      prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]
+    setSelectedRatings((previous) =>
+      previous.includes(id)
+        ? previous.filter((item) => item !== id)
+        : [...previous, id]
     );
   };
 
@@ -150,83 +230,145 @@ function CategoryStorefrontContent({
     selectedDiscounts.length +
     selectedRatings.length;
 
-  // Filter Computation
+  // Apply filters
   const filtered = useMemo(() => {
-    return products.filter((p) => {
+    return products.filter((product) => {
+      const productSub = normalize(getSubCategoryValue(product));
+      const productTitle = normalize(
+        product.title || product.name
+      );
+
       const matchSub =
         selectedSubs.length === 0 ||
-        selectedSubs.some((s) => {
-          const sLower = s.toLowerCase();
-          const pSubLower = (p.subCategory || "").toLowerCase();
-          const pTitleLower = (p.title || p.name || "").toLowerCase();
+        selectedSubs.some((sub) => {
+          const selected = normalize(sub);
+
           return (
-            (pSubLower && (pSubLower.includes(sLower) || sLower.includes(pSubLower))) ||
-            pTitleLower.includes(sLower)
+            (productSub &&
+              (productSub.includes(selected) ||
+                selected.includes(productSub))) ||
+            productTitle.includes(selected)
           );
         });
 
-      const q = search.toLowerCase().trim();
-      const matchSearch =
-        !q ||
-        p.title?.toLowerCase().includes(q) ||
-        p.brand?.toLowerCase().includes(q) ||
-        p.subCategory?.toLowerCase().includes(q);
+      const query = normalize(search);
 
-      const pPrice = Number(p.price || 0);
+      const matchSearch =
+        !query ||
+        normalize(product.title || product.name).includes(query) ||
+        normalize(product.brand).includes(query) ||
+        normalize(getSubCategoryValue(product)).includes(query);
+
+      const price = Number(product.price || 0);
+
       const matchPrice =
         selectedPrices.length === 0 ||
         selectedPrices.some((priceId) => {
-          const range = PRICE_RANGES.find((r) => r.id === priceId);
-          return range && pPrice >= range.min && pPrice <= range.max;
+          const range = PRICE_RANGES.find(
+            (item) => item.id === priceId
+          );
+
+          return (
+            range &&
+            price >= range.min &&
+            price <= range.max
+          );
         });
 
-      const pMrp = Number(p.mrp || pPrice);
+      const mrp = Number(product.mrp || price);
+
       const discount =
-        pMrp > pPrice && pPrice > 0
-          ? Math.round(((pMrp - pPrice) / pMrp) * 100)
+        mrp > price && price > 0
+          ? Math.round(((mrp - price) / mrp) * 100)
           : 0;
+
       const matchDiscount =
         selectedDiscounts.length === 0 ||
-        selectedDiscounts.some((discId) => {
-          const range = DISCOUNT_RANGES.find((d) => d.id === discId);
+        selectedDiscounts.some((discountId) => {
+          const range = DISCOUNT_RANGES.find(
+            (item) => item.id === discountId
+          );
+
           return range && discount >= range.min;
         });
 
-      const rating = Number(p.rating || 4.3);
+      const rating = Number(product.rating || 4.3);
+
       const matchRating =
         selectedRatings.length === 0 ||
-        selectedRatings.some((rateId) => {
-          const range = RATING_RANGES.find((r) => r.id === rateId);
+        selectedRatings.some((ratingId) => {
+          const range = RATING_RANGES.find(
+            (item) => item.id === ratingId
+          );
+
           return range && rating >= range.min;
         });
 
-      return matchSub && matchSearch && matchPrice && matchDiscount && matchRating;
+      return (
+        matchSub &&
+        matchSearch &&
+        matchPrice &&
+        matchDiscount &&
+        matchRating
+      );
     });
-  }, [products, selectedSubs, search, selectedPrices, selectedDiscounts, selectedRatings]);
+  }, [
+    products,
+    selectedSubs,
+    search,
+    selectedPrices,
+    selectedDiscounts,
+    selectedRatings,
+  ]);
 
-  // Shopsy Sort Computation
+  // Sorting
   const sorted = useMemo(() => {
     const list = [...filtered];
-    if (sortBy === "price_asc") list.sort((a, b) => Number(a.price) - Number(b.price));
-    if (sortBy === "price_desc") list.sort((a, b) => Number(b.price) - Number(a.price));
+
+    if (sortBy === "price_asc") {
+      list.sort(
+        (a, b) => Number(a.price) - Number(b.price)
+      );
+    }
+
+    if (sortBy === "price_desc") {
+      list.sort(
+        (a, b) => Number(b.price) - Number(a.price)
+      );
+    }
+
     if (sortBy === "discount") {
       list.sort((a, b) => {
-        const discA = a.mrp > a.price ? Math.round(((a.mrp - a.price) / a.mrp) * 100) : 0;
-        const discB = b.mrp > b.price ? Math.round(((b.mrp - b.price) / b.mrp) * 100) : 0;
-        return discB - discA;
+        const priceA = Number(a.price || 0);
+        const mrpA = Number(a.mrp || priceA);
+        const priceB = Number(b.price || 0);
+        const mrpB = Number(b.mrp || priceB);
+
+        const discountA =
+          mrpA > priceA && mrpA > 0
+            ? ((mrpA - priceA) / mrpA) * 100
+            : 0;
+
+        const discountB =
+          mrpB > priceB && mrpB > 0
+            ? ((mrpB - priceB) / mrpB) * 100
+            : 0;
+
+        return discountB - discountA;
       });
     }
-    return list; // 'popularity' uses default order
+
+    return list;
   }, [filtered, sortBy]);
 
-  // Sidebar Filter Component
+  // Sidebar filters
   const FilterSidebar = (
     <div className="space-y-4">
-      {/* Filters Header + Clear All (Shopsy Style) */}
       <div className="flex items-center justify-between border-b border-slate-100 pb-3">
         <h3 className="text-sm font-black tracking-wider text-slate-900 uppercase">
           Filters
         </h3>
+
         {activeFiltersCount > 0 && (
           <button
             onClick={handleResetFilters}
@@ -237,41 +379,50 @@ function CategoryStorefrontContent({
         )}
       </div>
 
-      {/* Active Filter Chips (Shopsy [X] Badges) */}
       {activeFiltersCount > 0 && (
         <div className="flex flex-wrap gap-1.5 border-b border-slate-100 pb-3">
           {selectedSubs.map((sub) => (
-            <span
+            <button
               key={sub}
+              type="button"
               onClick={() => toggleSub(sub)}
-              className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-200"
+              className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-200"
             >
-              <X className="h-3 w-3 text-slate-400" /> {sub}
-            </span>
+              <X className="h-3 w-3 text-slate-400" />
+              {sub}
+            </button>
           ))}
-          {selectedPrices.map((pId) => {
-            const range = PRICE_RANGES.find((r) => r.id === pId);
+
+          {selectedPrices.map((priceId) => {
+            const range = PRICE_RANGES.find(
+              (item) => item.id === priceId
+            );
+
             return (
-              <span
-                key={pId}
-                onClick={() => togglePrice(pId)}
-                className="inline-flex cursor-pointer items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-200"
+              <button
+                key={priceId}
+                type="button"
+                onClick={() => togglePrice(priceId)}
+                className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-bold text-slate-700 hover:bg-slate-200"
               >
-                <X className="h-3 w-3 text-slate-400" /> {range?.label}
-              </span>
+                <X className="h-3 w-3 text-slate-400" />
+                {range?.label}
+              </button>
             );
           })}
         </div>
       )}
 
-      {/* 1. Category Accordion */}
+      {/* Category */}
       {subCategories.length > 0 && (
         <div className="border-b border-slate-100 pb-3.5">
           <button
+            type="button"
             onClick={() => toggleSection("categories")}
             className="flex w-full items-center justify-between text-xs font-black text-slate-800 uppercase tracking-wider"
           >
             <span>Category</span>
+
             <ChevronDown
               className={`h-4 w-4 text-slate-400 transition-transform ${
                 openSections.categories ? "rotate-180" : ""
@@ -280,18 +431,29 @@ function CategoryStorefrontContent({
           </button>
 
           {openSections.categories && (
-            <div className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-1">
+            <div className="mt-3 max-h-48 space-y-2 overflow-y-auto pr-1">
               {subCategories.map((sub) => {
                 const checked = selectedSubs.includes(sub);
-                const count = products.filter((p) => {
-                  const sLower = sub.toLowerCase();
-                  const pSubLower = (p.subCategory || "").toLowerCase();
-                  const pTitleLower = (p.title || p.name || "").toLowerCase();
+
+                const count = products.filter((product) => {
+                  const productSub = normalize(
+                    getSubCategoryValue(product)
+                  );
+
+                  const productTitle = normalize(
+                    product.title || product.name
+                  );
+
+                  const selected = normalize(sub);
+
                   return (
-                    (pSubLower && (pSubLower.includes(sLower) || sLower.includes(pSubLower))) ||
-                    pTitleLower.includes(sLower)
+                    (productSub &&
+                      (productSub.includes(selected) ||
+                        selected.includes(productSub))) ||
+                    productTitle.includes(selected)
                   );
                 }).length;
+
                 return (
                   <label
                     key={sub}
@@ -302,13 +464,23 @@ function CategoryStorefrontContent({
                         type="checkbox"
                         checked={checked}
                         onChange={() => toggleSub(sub)}
-                        className="h-4 w-4 rounded accent-orange-500 cursor-pointer"
+                        className="h-4 w-4 cursor-pointer rounded accent-orange-500"
                       />
-                      <span className={checked ? "font-bold text-slate-900" : ""}>
+
+                      <span
+                        className={
+                          checked
+                            ? "font-bold text-slate-900"
+                            : ""
+                        }
+                      >
                         {sub}
                       </span>
                     </div>
-                    <span className="text-[10px] text-slate-400">({count})</span>
+
+                    <span className="text-[10px] text-slate-400">
+                      ({count})
+                    </span>
                   </label>
                 );
               })}
@@ -317,13 +489,15 @@ function CategoryStorefrontContent({
         </div>
       )}
 
-      {/* 2. Price Accordion */}
+      {/* Price */}
       <div className="border-b border-slate-100 pb-3.5">
         <button
+          type="button"
           onClick={() => toggleSection("price")}
           className="flex w-full items-center justify-between text-xs font-black text-slate-800 uppercase tracking-wider"
         >
           <span>Price</span>
+
           <ChevronDown
             className={`h-4 w-4 text-slate-400 transition-transform ${
               openSections.price ? "rotate-180" : ""
@@ -333,36 +507,34 @@ function CategoryStorefrontContent({
 
         {openSections.price && (
           <div className="mt-3 space-y-2">
-            {PRICE_RANGES.map((pr) => {
-              const checked = selectedPrices.includes(pr.id);
-              return (
-                <label
-                  key={pr.id}
-                  className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 hover:text-slate-900"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => togglePrice(pr.id)}
-                    className="h-4 w-4 rounded accent-orange-500 cursor-pointer"
-                  />
-                  <span className={checked ? "font-bold text-slate-900" : ""}>
-                    {pr.label}
-                  </span>
-                </label>
-              );
-            })}
+            {PRICE_RANGES.map((range) => (
+              <label
+                key={range.id}
+                className="flex cursor-pointer items-center gap-2 text-xs text-slate-600"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedPrices.includes(range.id)}
+                  onChange={() => togglePrice(range.id)}
+                  className="h-4 w-4 cursor-pointer rounded accent-orange-500"
+                />
+
+                <span>{range.label}</span>
+              </label>
+            ))}
           </div>
         )}
       </div>
 
-      {/* 3. Discount Accordion */}
+      {/* Discount */}
       <div className="border-b border-slate-100 pb-3.5">
         <button
+          type="button"
           onClick={() => toggleSection("discount")}
           className="flex w-full items-center justify-between text-xs font-black text-slate-800 uppercase tracking-wider"
         >
           <span>Discount</span>
+
           <ChevronDown
             className={`h-4 w-4 text-slate-400 transition-transform ${
               openSections.discount ? "rotate-180" : ""
@@ -372,36 +544,34 @@ function CategoryStorefrontContent({
 
         {openSections.discount && (
           <div className="mt-3 space-y-2">
-            {DISCOUNT_RANGES.map((dr) => {
-              const checked = selectedDiscounts.includes(dr.id);
-              return (
-                <label
-                  key={dr.id}
-                  className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 hover:text-slate-900"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleDiscount(dr.id)}
-                    className="h-4 w-4 rounded accent-orange-500 cursor-pointer"
-                  />
-                  <span className={checked ? "font-bold text-emerald-700" : ""}>
-                    {dr.label}
-                  </span>
-                </label>
-              );
-            })}
+            {DISCOUNT_RANGES.map((range) => (
+              <label
+                key={range.id}
+                className="flex cursor-pointer items-center gap-2 text-xs text-slate-600"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedDiscounts.includes(range.id)}
+                  onChange={() => toggleDiscount(range.id)}
+                  className="h-4 w-4 cursor-pointer rounded accent-orange-500"
+                />
+
+                <span>{range.label}</span>
+              </label>
+            ))}
           </div>
         )}
       </div>
 
-      {/* 4. Rating Accordion */}
+      {/* Rating */}
       <div>
         <button
+          type="button"
           onClick={() => toggleSection("rating")}
           className="flex w-full items-center justify-between text-xs font-black text-slate-800 uppercase tracking-wider"
         >
           <span>Customer Rating</span>
+
           <ChevronDown
             className={`h-4 w-4 text-slate-400 transition-transform ${
               openSections.rating ? "rotate-180" : ""
@@ -411,25 +581,21 @@ function CategoryStorefrontContent({
 
         {openSections.rating && (
           <div className="mt-3 space-y-2">
-            {RATING_RANGES.map((rr) => {
-              const checked = selectedRatings.includes(rr.id);
-              return (
-                <label
-                  key={rr.id}
-                  className="flex cursor-pointer items-center gap-2 text-xs text-slate-600 hover:text-slate-900"
-                >
-                  <input
-                    type="checkbox"
-                    checked={checked}
-                    onChange={() => toggleRating(rr.id)}
-                    className="h-4 w-4 rounded accent-orange-500 cursor-pointer"
-                  />
-                  <span className={checked ? "font-bold text-slate-900" : ""}>
-                    {rr.label}
-                  </span>
-                </label>
-              );
-            })}
+            {RATING_RANGES.map((range) => (
+              <label
+                key={range.id}
+                className="flex cursor-pointer items-center gap-2 text-xs text-slate-600"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedRatings.includes(range.id)}
+                  onChange={() => toggleRating(range.id)}
+                  className="h-4 w-4 cursor-pointer rounded accent-orange-500"
+                />
+
+                <span>{range.label}</span>
+              </label>
+            ))}
           </div>
         )}
       </div>
@@ -438,59 +604,78 @@ function CategoryStorefrontContent({
 
   return (
     <div className="min-h-screen bg-slate-50/70 pb-20">
-      {/* Breadcrumb Strip */}
+      {/* Breadcrumb */}
       <div className="border-b border-slate-200/80 bg-white">
         <div className="mx-auto flex max-w-7xl items-center gap-1.5 px-4 py-3 text-xs text-slate-500">
           <Link href="/" className="hover:text-orange-600">
             Home
           </Link>
+
           <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
+
           <Link href="/products" className="hover:text-orange-600">
             Shop
           </Link>
+
           <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-          <span className="font-bold text-slate-800">{categoryName}</span>
+
+          <span className="font-bold text-slate-800">
+            {categoryName}
+          </span>
+
           {selectedSubs.length === 1 && (
             <>
               <ChevronRight className="h-3.5 w-3.5 text-slate-400" />
-              <span className="font-bold text-orange-600">{selectedSubs[0]}</span>
+              <span className="font-bold text-orange-600">
+                {selectedSubs[0]}
+              </span>
             </>
           )}
         </div>
       </div>
 
       <div className="mx-auto max-w-7xl px-4 py-5">
-        {/* Title Header */}
+        {/* Header */}
         <div className="mb-4">
           <h1 className="text-xl font-black text-slate-900 md:text-2xl">
-            {selectedSubs.length === 1 ? selectedSubs[0] : title}
+            {selectedSubs.length === 1
+              ? selectedSubs[0]
+              : title}
           </h1>
-          <p className="mt-1 text-xs text-slate-500 leading-relaxed">
+
+          <p className="mt-1 text-xs leading-relaxed text-slate-500">
             {subtitle}
           </p>
         </div>
 
-        {/* SHOPSY-STYLE HORIZONTAL SORTING BAR */}
-        <div className="mb-5 flex flex-col gap-3 rounded-xl border border-slate-200/90 bg-white p-3 shadow-2xs sm:flex-row sm:items-center sm:justify-between">
+        {/* Sorting bar */}
+        <div className="mb-5 flex flex-col gap-3 rounded-xl border border-slate-200/90 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
           <div className="flex items-center gap-3">
             <button
+              type="button"
               onClick={() => setMobileFilterOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-black text-white shadow-xs md:hidden"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-black text-white shadow-sm md:hidden"
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
-              Filters {activeFiltersCount > 0 && `(${activeFiltersCount})`}
+              Filters
+              {activeFiltersCount > 0 &&
+                ` (${activeFiltersCount})`}
             </button>
 
             <p className="text-xs font-semibold text-slate-600">
               Showing{" "}
-              <strong className="text-slate-900">{sorted.length}</strong>{" "}
+              <strong className="text-slate-900">
+                {sorted.length}
+              </strong>{" "}
               products
             </p>
           </div>
 
-          {/* Shopsy Horizontal Sort Links */}
           <div className="flex items-center gap-1 overflow-x-auto text-xs font-bold scrollbar-none">
-            <span className="text-slate-400 pr-1 shrink-0">Sort By:</span>
+            <span className="shrink-0 pr-1 text-slate-400">
+              Sort By:
+            </span>
+
             {[
               { id: "popularity", label: "Popularity" },
               { id: "price_asc", label: "Price -- Low to High" },
@@ -499,10 +684,11 @@ function CategoryStorefrontContent({
             ].map((tab) => (
               <button
                 key={tab.id}
+                type="button"
                 onClick={() => setSortBy(tab.id)}
                 className={`shrink-0 rounded-lg px-2.5 py-1 transition ${
                   sortBy === tab.id
-                    ? "border-b-2 border-orange-500 font-black text-orange-600 bg-orange-50/50"
+                    ? "border-b-2 border-orange-500 bg-orange-50/50 font-black text-orange-600"
                     : "text-slate-600 hover:text-slate-900"
                 }`}
               >
@@ -512,36 +698,53 @@ function CategoryStorefrontContent({
           </div>
         </div>
 
-        {/* Content Layout: Left Sidebar + Product Grid */}
+        {/* Main layout */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-          {/* DESKTOP SIDEBAR (3 cols) */}
           <aside className="hidden lg:col-span-3 lg:block">
-            <div className="sticky top-32 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-2xs">
+            <div className="sticky top-32 rounded-2xl border border-slate-200/90 bg-white p-5 shadow-sm">
               {FilterSidebar}
             </div>
           </aside>
 
-          {/* PRODUCT CARDS (9 cols) */}
           <main className="lg:col-span-9">
             {loading ? (
               <div className="py-24 text-center">
                 <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-orange-500 border-t-transparent" />
+
                 <p className="mt-3 text-xs font-bold text-slate-500">
                   Loading {categoryName} collection...
                 </p>
+              </div>
+            ) : error ? (
+              <div className="rounded-2xl border border-red-100 bg-white py-16 text-center">
+                <p className="text-sm font-bold text-red-600">
+                  {error}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={() => window.location.reload()}
+                  className="mt-4 rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-white"
+                >
+                  Try Again
+                </button>
               </div>
             ) : sorted.length === 0 ? (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-white py-20 text-center">
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-50 text-orange-500">
                   <Sparkles className="h-7 w-7" />
                 </div>
+
                 <h3 className="mt-3 text-sm font-black text-slate-900">
                   No products found in {categoryName}
                 </h3>
+
                 <p className="mt-1 text-xs text-slate-500">
                   Try clearing your filters or adding new products from Admin.
                 </p>
+
                 <button
+                  type="button"
                   onClick={handleResetFilters}
                   className="mt-4 rounded-xl bg-orange-500 px-4 py-2 text-xs font-bold text-white hover:bg-orange-600"
                 >
@@ -551,7 +754,10 @@ function CategoryStorefrontContent({
             ) : (
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                 {sorted.map((item) => (
-                  <ProductCard key={item._id} product={item} />
+                  <ProductCard
+                    key={item._id || item.id}
+                    product={item}
+                  />
                 ))}
               </div>
             )}
@@ -559,15 +765,17 @@ function CategoryStorefrontContent({
         </div>
       </div>
 
-      {/* MOBILE FILTER BOTTOM DRAWER */}
+      {/* Mobile filter drawer */}
       {mobileFilterOpen && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/50 backdrop-blur-xs md:hidden">
-          <div className="w-full max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-end bg-black/50 backdrop-blur-sm md:hidden">
+          <div className="max-h-[85vh] w-full overflow-y-auto rounded-t-3xl bg-white p-5 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="text-sm font-black text-slate-900">
                 Filters ({activeFiltersCount})
               </h3>
+
               <button
+                type="button"
                 onClick={() => setMobileFilterOpen(false)}
                 className="rounded-full p-1 text-slate-400 hover:bg-slate-100"
               >
@@ -579,12 +787,15 @@ function CategoryStorefrontContent({
 
             <div className="sticky bottom-0 mt-4 flex gap-2 border-t border-slate-100 bg-white pt-3">
               <button
+                type="button"
                 onClick={handleResetFilters}
                 className="flex-1 rounded-xl border border-slate-200 py-3 text-xs font-bold text-slate-700 hover:bg-slate-50"
               >
                 Clear All
               </button>
+
               <button
+                type="button"
                 onClick={() => setMobileFilterOpen(false)}
                 className="flex-1 rounded-xl bg-orange-500 py-3 text-xs font-black text-white shadow-md shadow-orange-500/30"
               >
