@@ -28,17 +28,21 @@ const getCategoryName = (product) => {
       category.title ||
       category.label ||
       ""
-    ).toString().trim();
+    )
+      .toString()
+      .trim();
   }
 
   if (Array.isArray(product?.categories)) {
-    return product.categories
-      .map((item) =>
-        typeof item === "string"
-          ? item.trim()
-          : item?.name || item?.title || ""
-      )
-      .filter(Boolean)[0] || "";
+    return (
+      product.categories
+        .map((item) =>
+          typeof item === "string"
+            ? item.trim()
+            : item?.name || item?.title || ""
+        )
+        .filter(Boolean)[0] || ""
+    );
   }
 
   return "";
@@ -191,8 +195,7 @@ export default function HomePage() {
             </h2>
 
             <p className="text-[11px] font-medium text-slate-400">
-              Lowest prices • Verified suppliers •{" "}
-              {displayedProducts.length} items
+              Lowest prices • Verified suppliers • {displayedProducts.length} items
             </p>
           </div>
 
